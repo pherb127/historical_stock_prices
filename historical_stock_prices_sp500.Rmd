@@ -1,0 +1,122 @@
+---
+title: "Historical Stock Prices"
+output: html_document
+date: "2024-09-30"
+---
+We setup the environment :
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+lib <- function(package) {
+  if (!require(package, character.only = T)) install.packages(package); require(package, character.only = T) }
+
+## Load Packages
+lib("data.table")
+lib("ggplot2")
+lib("stats")
+lib("dplyr")
+lib("readxl")
+lib("quantmod")
+lib("moments")
+
+wd <- dirname(rstudioapi::getSourceEditorContext()$path) 
+setwd(wd)
+```
+
+## R Markdown
+We are interested in the S&P 500 index (ticker GSPC and MSFT) from Yahoo! Finance (https://finance.yahoo.com/) for the period from September 1,
+2009 to August 31, 2021:
+
+```{r}
+#We load the data 
+sp500 <- read_excel("GSPC.xlsx")
+#summary(sp500)
+sp500$Date <- as.Date(sp500$Date, format = "%b %d, %Y")
+sp500 <- sp500[order(sp500$Date), ]
+sp500$AdjClose <- as.numeric(gsub(",", "", sp500$AdjClose))
+
+
+getSymbols("MSFT", from = "2009-09-01", to = "2021-09-30", src = "yahoo")
+msft <- data.table(Date = index(MSFT), AdjClose = drop(coredata(MSFT$MSFT.Adjusted)))
+rm(MSFT)
+msft <- msft[Date <= as.Date("2021-08-30")]
+#summary(msft)
+
+
+
+# Normalize Microsoft and S&P500 prices to start at 100
+sp500$SNP500_Norm <- (sp500$AdjClose / sp500$AdjClose[1]) * 100
+msft$MSFT_Norm <- (msft$AdjClose / msft$AdjClose[1]) * 100
+
+
+# Create a time series plot for both normalized prices
+plot(msft$Date, msft$MSFT_Norm, type = "l", col = "blue", xlab = "Date", ylab = "Adjusted Closing Value", main = "Microsoft vs S&P 500")
+lines(sp500$Date, sp500$SNP500_Norm, col = "red")
+legend("topleft", legend = c("Microsoft", "S&P 500"), col = c("blue", "red"), lty = 1)
+
+## Compute returns
+msft$returns <- (msft$AdjClose / lag(msft$AdjClose) - 1) * 100
+sp500$returns <- (sp500$AdjClose / lag(sp500$AdjClose) - 1) * 100
+
+# Plot individual returns series
+plot(msft$Date, msft$returns, type = "l", col = "blue", xlab = "Date", ylab = "Returns [%]", main = "Returns")
+lines(sp500$Date, sp500$returns, type = "l", col = "red")
+legend("topleft", legend = c("Microsoft", "S&P 500"), col = c("blue", "red"), lty = 1)
+
+aligned_returns <- na.omit(data.frame(SNP500_Returns = sp500$returns, MSFT_Returns = msft$returns))
+# FOR MSFT
+ggplot(aligned_returns, aes(x = MSFT_Returns)) +
+  geom_histogram(aes(y = ..density..), binwidth = 0.3, fill = "blue", color = "black", alpha = 0.7) +
+  stat_function(fun = dnorm, args = list(mean = mean(aligned_returns$MSFT_Returns), sd = sd(aligned_returns$MSFT_Returns)), color = "red", size = 1) +
+  labs(x = "Microsoft Returns", y = "Density", title = "Microsoft Returns with Normal Distribution Overlay") +
+  theme_bw()
+
+# FOR S&P500
+ggplot(aligned_returns, aes(x = SNP500_Returns)) +
+  geom_histogram(aes(y = ..density..), binwidth = 0.3, fill = "blue", color = "black", alpha = 0.7) +
+  stat_function(fun = dnorm, args = list(mean = mean(aligned_returns$SNP500_Returns), sd = sd(aligned_returns$SNP500_Returns)), color = "red", size = 1) +
+  labs(x = "S&P500 Returns", y = "Density", title = "S&P500 Returns with Normal Distribution Overlay") +
+  theme_bw()
+
+
+msft_summary <- summary(msft$returns)
+msft_skewness <- skewness(na.omit(msft$returns))
+msft_kurtosis <- kurtosis(na.omit(msft$returns))
+
+# Summary statistics for S&P 500 returns
+snp_summary <- summary(sp500$returns)
+snp_skewness <- skewness(na.omit(sp500$returns))
+snp_kurtosis <- kurtosis(na.omit(sp500$returns))
+
+# Print summary statistics
+print(msft_summary)
+print(paste("Skewness: ", msft_skewness, " Kurtosis: ", msft_kurtosis))
+
+print(snp_summary)
+print(paste("Skewness: ", snp_skewness, " Kurtosis: ", snp_kurtosis))
+
+#### 
+# Compute correlation
+correlation <- cor(na.omit(msft$returns), na.omit(sp500$returns))
+print(paste("Correlation: ", correlation))
+
+# Scatter plot
+plot(na.omit(sp500$returns), na.omit(msft$returns), xlab = "S&P 500 Returns", ylab = "Microsoft Returns", main = "Microsoft vs S&P 500 Returns")
+abline(lm(aligned_returns$MSFT_Returns ~ aligned_returns$SNP500_Returns), col = "red")
+
+ggplot(aligned_returns, aes(x = SNP500_Returns, y = MSFT_Returns)) +
+  geom_point(color = "blue", alpha = 0.5) +  # Scatter plot points
+  geom_smooth(method = "lm", color = "red", se = FALSE) +  # Regression line
+  labs(x = "S&P 500 Returns", y = "Microsoft Returns", title = "Microsoft vs S&P 500 Returns") +
+  theme_bw()
+```
+
+## Including Plots
+
+You can also embed plots, for example:
+
+```{r pressure, echo=FALSE}
+plot(pressure)
+```
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
